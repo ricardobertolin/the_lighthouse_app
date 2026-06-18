@@ -6,7 +6,7 @@ import webbrowser
 from datetime import date, datetime
 from pathlib import Path
 
-OUTPUT_PATH = Path(__file__).parent.parent / "docs" / "index.html"
+OUTPUT_PATH = Path(__file__).parent.parent / "index.html"
 
 # ---------------------------------------------------------------------------
 # HTML template — __DATA_JSON__ is replaced at render time.

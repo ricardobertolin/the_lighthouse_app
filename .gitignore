@@ -6,7 +6,6 @@ __pycache__/
 digest.db
 digest.html
 digest_*.html
-docs/digest_*.html
 
 # Environment / secrets — never commit keys
 .env
@@ -25,3 +24,6 @@ venv/
 # Editors
 .vscode/
 .idea/
+
+# Pipeline log
+lighthouse.log
