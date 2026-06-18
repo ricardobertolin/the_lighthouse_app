@@ -24,7 +24,7 @@ _HTML = r"""<!DOCTYPE html>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="The Lighthouse">
-<link rel="apple-touch-icon" href="lighthouse.png">
+<link rel="apple-touch-icon" href="the_lighthouse2.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=UnifrakturCook:wght@700&family=Playfair+Display:ital,wght@0,700;0,900;1,700&family=PT+Serif:ital,wght@0,400;0,700;1,400&family=Oswald:wght@400;500;600&display=swap" rel="stylesheet">
@@ -550,7 +550,7 @@ function wxLabel(code) {
 
 function imgError(img) {
   img.onerror = null;
-  img.src = 'lighthouse.png';
+  img.src = 'the_lighthouse2.png';
 }
 
 // ── State ────────────────────────────────────────────────────────────
@@ -740,7 +740,7 @@ function renderArticles() {
       ? (art.one_liner_pt || art.one_liner_en || art.one_liner || art.title)
       : (art.one_liner_en || art.one_liner || art.title);
 
-    const thumb = '<img class="art-thumb" src="' + esc(art.image_url || 'lighthouse.png') + '" alt="" loading="lazy" onerror="imgError(this)">';
+    const thumb = '<img class="art-thumb" src="' + esc(art.image_url || 'the_lighthouse2.png') + '" alt="" loading="lazy" onerror="imgError(this)">';
 
     const note = art.rationale
       ? '<div class="art-note">' + esc(art.rationale) + '</div>' : '';

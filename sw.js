@@ -5,7 +5,7 @@ self.addEventListener('install', e => {
   self.skipWaiting();
   e.waitUntil(
     caches.open(CACHE).then(c =>
-      c.addAll(['./index.html', './manifest.json', './lighthouse.png'])
+      c.addAll(['./index.html', './manifest.json', './the_lighthouse2.png'])
         .catch(() => {}) // first deploy — index.html may not exist yet
     )
   );
