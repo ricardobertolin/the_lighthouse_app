@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Runtime artifacts
+digest.db
+digest.html
+digest_*.html
+docs/digest_*.html
+
+# Environment / secrets — never commit keys
+.env
+.env.*
+*.env
+secrets.*
+*.key
+*.secret
+apikeys.*
+.venv/
+venv/
+
+# Claude Code local settings — may contain API keys in allow-list entries
+.claude/
+
+# Editors
+.vscode/
+.idea/

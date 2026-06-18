@@ -1,0 +1,17 @@
+{
+  "name": "The Lighthouse",
+  "short_name": "Lighthouse",
+  "description": "Personal daily news digest for Curitiba",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#efe9d8",
+  "theme_color": "#20201c",
+  "icons": [
+    {
+      "src": "lighthouse.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

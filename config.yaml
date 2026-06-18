@@ -1,0 +1,103 @@
+trusted_feeds:
+  # Global / English
+  - https://feeds.bbci.co.uk/news/world/rss.xml
+  - https://feeds.bbci.co.uk/news/technology/rss.xml
+  - https://rss.nytimes.com/services/xml/rss/nyt/World.xml
+  - https://feeds.feedburner.com/TechCrunch
+  - https://www.theverge.com/rss/index.xml
+  - https://hnrss.org/frontpage
+  - https://www.wired.com/feed/rss
+  - https://arstechnica.com/feed/
+  # Brazil national
+  - https://g1.globo.com/rss/g1/
+  - https://www.bbc.com/portuguese/index.xml
+  # Paraná / Curitiba local (all verified working)
+  - https://www.gazetadopovo.com.br/feed/rss/parana.xml
+  - https://www.gazetadopovo.com.br/feed/rss/ultimas-noticias.xml
+  - https://www.bemparana.com.br/feed/
+  - https://bandab.com.br/feed/
+  - https://www.tribunapr.com.br/feed/
+  - https://curitibacult.com.br/feed/
+
+search_topics:
+  - "artificial intelligence machine learning"
+  - "Brazil economy politics"
+  - "climate change renewable energy"
+  - "software engineering developer tools"
+  - "geopolitics international relations"
+  - "space exploration science"
+  - "startup technology venture capital"
+
+# Portuguese-language search topics (searched via GNews with lang=pt)
+search_topics_pt:
+  - "Curitiba Paraná"
+  - "Curitiba notícias hoje"
+  - "Paraná economia política"
+  - "prefeitura Curitiba"
+  - "Curitiba segurança trânsito"
+
+interest_paragraph: >
+  I am deeply interested in artificial intelligence, machine learning, and software engineering —
+  especially developer tools, programming languages, and how the software industry is evolving.
+  I follow global geopolitics and macroeconomics, with particular attention to Brazil and Latin
+  America. I care about climate change, the energy transition, and sustainability. I enjoy science
+  news including space exploration, biology, and physics. I also follow technology companies,
+  startups, and the venture capital ecosystem. I read both Portuguese and English and want the
+  best global stories regardless of language; regional Brazilian coverage is a bonus.
+
+domain_reputation:
+  trusted:
+    - bbc.com
+    - bbc.co.uk
+    - nytimes.com
+    - reuters.com
+    - apnews.com
+    - theguardian.com
+    - techcrunch.com
+    - theverge.com
+    - wired.com
+    - arstechnica.com
+    - g1.globo.com
+    - folha.uol.com.br
+    - estadao.com.br
+    - valor.globo.com
+    - uol.com.br
+    - nature.com
+    - science.org
+    - scientificamerican.com
+    - economist.com
+    - ft.com
+    - wsj.com
+    - bloomberg.com
+    - washingtonpost.com
+    - npr.org
+    - ycombinator.com
+    - hacker-news.firebaseio.com
+    - news.ycombinator.com
+    - gazetadopovo.com.br
+    - bemparana.com.br
+    - bandab.com.br
+    - tribunapr.com.br
+    - curitibacult.com.br
+  trusted_score: 0.85
+  neutral_score: 0.40
+  blocked: []
+
+weights:
+  relevance: 0.50
+  reputation: 0.30
+  corroboration: 0.20
+
+top_n: 20
+
+gnews:
+  max_daily_queries: 15
+  rate_limit_seconds: 1.1
+
+# Browser to open the digest. Options:
+#   "default"  — use the OS default browser
+#   "brave"    — auto-detect Brave on Windows/macOS/Linux
+#   "chrome"   — auto-detect Chrome
+#   "firefox"  — auto-detect Firefox
+#   any absolute path, e.g. "C:/Program Files/BraveSoftware/Brave-Browser/Application/brave.exe"
+browser: brave
