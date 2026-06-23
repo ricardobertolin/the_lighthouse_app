@@ -620,20 +620,20 @@ function buildScene(type) {
       '<div style="position:absolute;left:-5%;top:56%;width:110%;height:9%;background:rgba(222,222,222,.48);border-radius:4px;"></div>';
 
   } else if (type === 'Snow') {
-    const xs = [22,50,80,115,148,180,215,248,35,95,162,228];
+    const ps = [3,11,20,28,37,46,54,63,71,80,88,95];
     const ds = [0,.4,.7,.15,.55,.9,.25,.65,.3,.75,.1,.5];
     const sz = [5,4,6,5,4,5,6,4,5,4,6,5];
-    xs.forEach((x,i) => {
-      overlay += '<div class="fx-snow-dot" style="left:' + x + 'px;top:-12px;width:' + sz[i] + 'px;height:' + sz[i] + 'px;animation-delay:' + ds[i] + 's;animation-duration:' + (1.2 + ds[i]*0.4) + 's;"></div>';
+    ps.forEach((p,i) => {
+      overlay += '<div class="fx-snow-dot" style="left:' + p + '%;top:-12px;width:' + sz[i] + 'px;height:' + sz[i] + 'px;animation-delay:' + ds[i] + 's;animation-duration:' + (1.2 + ds[i]*0.4) + 's;"></div>';
     });
 
   } else if (type === 'Rainy' || type === 'Thunderstorm') {
-    const xs  = [16,34,54,76,98,118,142,164,188,212,238,262];
+    const ps  = [2,10,18,27,35,43,51,59,67,76,84,93];
     const ds  = [0,.28,.62,.08,.45,.82,.18,.55,.35,.72,.1,.48];
     const hs  = [18,22,16,20,24,18,22,16,20,22,18,20];
     const drs = [.72,.88,.65,.8,.7,.84,.68,.76,.9,.62,.78,.7];
-    xs.forEach((x,i) => {
-      overlay += '<div class="fx-rain-streak" style="left:' + x + 'px;top:-26px;height:' + hs[i] + 'px;animation-delay:' + ds[i] + 's;animation-duration:' + drs[i] + 's;"></div>';
+    ps.forEach((p,i) => {
+      overlay += '<div class="fx-rain-streak" style="left:' + p + '%;top:-26px;height:' + hs[i] + 'px;animation-delay:' + ds[i] + 's;animation-duration:' + drs[i] + 's;"></div>';
     });
     if (type === 'Thunderstorm') {
       overlay += '<div class="fx-lightning-flash"></div>';
