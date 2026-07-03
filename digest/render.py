@@ -24,6 +24,7 @@ _HTML = r"""<!DOCTYPE html>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="The Lighthouse">
+<link rel="icon" type="image/png" href="the_lighthouse2.png">
 <link rel="apple-touch-icon" href="the_lighthouse2.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
