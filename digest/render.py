@@ -821,63 +821,72 @@ function applyFilters() {
 
 // ── Share as image ───────────────────────────────────────────────────
 function wrapText(ctx, text, maxW) {
-  const words = (text || '').split(' ');
-  const lines = [];
-  let cur = '';
-  for (const w of words) {
-    const test = cur ? cur + ' ' + w : w;
-    if (ctx.measureText(test).width > maxW && cur) { lines.push(cur); cur = w; }
+  var words = (text || '').split(' ');
+  var lines = [], cur = '';
+  for (var wi = 0; wi < words.length; wi++) {
+    var test = cur ? cur + ' ' + words[wi] : words[wi];
+    if (ctx.measureText(test).width > maxW && cur) { lines.push(cur); cur = words[wi]; }
     else cur = test;
   }
   if (cur) lines.push(cur);
   return lines;
 }
 
-function _drawCard(ctx, W, H, headline, liner, cat, src, artImg) {
-  const SPLIT = artImg ? 510 : W;
-  const textW  = SPLIT - 48;
+// Bayer 4x4 ordered dither — scales img to w x h and returns a canvas.
+// Throws SecurityError if the image is CORS-blocked.
+function _ditherImg(img, w, h) {
+  var BAYER = [[0,8,2,10],[12,4,14,6],[3,11,1,9],[15,7,13,5]];
+  var tmp = document.createElement('canvas');
+  tmp.width = w; tmp.height = h;
+  var c = tmp.getContext('2d');
+  var sc = Math.max(w / img.width, h / img.height);
+  var sw = w / sc, sh = h / sc;
+  c.drawImage(img, (img.width - sw) / 2, (img.height - sh) / 2, sw, sh, 0, 0, w, h);
+  var id = c.getImageData(0, 0, w, h);
+  var d = id.data;
+  for (var py = 0; py < h; py++) {
+    for (var px = 0; px < w; px++) {
+      var i = (py * w + px) * 4;
+      var lum = Math.max(0, Math.min(1, (d[i]*0.299 + d[i+1]*0.587 + d[i+2]*0.114) / 255 * 1.5 - 0.24));
+      var bit = lum > BAYER[py % 4][px % 4] / 16 ? 1 : 0;
+      d[i]   = bit ? 239 : 32;
+      d[i+1] = bit ? 233 : 32;
+      d[i+2] = bit ? 216 : 28;
+      d[i+3] = 255;
+    }
+  }
+  c.putImageData(id, 0, 0);
+  return tmp;
+}
 
-  // paper background
+function _drawCard(ctx, W, H, headline, liner, cat, src, ditheredImg) {
+  var SPLIT = ditheredImg ? 510 : W;
+  var textW = SPLIT - 48;
+
   ctx.fillStyle = '#efe9d8';
   ctx.fillRect(0, 0, W, H);
 
-  // article image — right column, clipped
-  if (artImg) {
-    const iX = SPLIT, iY = 54, iW = W - SPLIT, iH = H - 54 - 38;
-    const scale = Math.max(iW / artImg.width, iH / artImg.height);
-    const sw = iW / scale, sh = iH / scale;
-    const sx = (artImg.width - sw) / 2, sy = (artImg.height - sh) / 2;
-    ctx.save();
-    ctx.beginPath(); ctx.rect(iX, iY, iW, iH); ctx.clip();
-    ctx.drawImage(artImg, sx, sy, sw, sh, iX, iY, iW, iH);
-    ctx.restore();
-    // column separator
-    ctx.fillStyle = 'rgba(32,32,28,.18)';
-    ctx.fillRect(SPLIT, 54, 1, H - 54 - 38);
+  if (ditheredImg) {
+    ctx.drawImage(ditheredImg, SPLIT, 54);
+    ctx.fillStyle = 'rgba(32,32,28,.2)';
+    ctx.fillRect(SPLIT, 54, 1, H - 92);
   }
 
-  // border
-  ctx.strokeStyle = '#20201c';
-  ctx.lineWidth = 2;
+  ctx.strokeStyle = '#20201c'; ctx.lineWidth = 2;
   ctx.strokeRect(1, 1, W - 2, H - 2);
 
-  // top bar
   ctx.fillStyle = '#20201c';
   ctx.fillRect(0, 0, W, 54);
 
-  // brand
   ctx.fillStyle = '#efe9d8';
   ctx.font = 'bold 18px Georgia, serif';
   ctx.textAlign = 'left';
   ctx.fillText('THE LIGHTHOUSE', 24, 35);
-
-  // source
   ctx.font = '12px Georgia, serif';
   ctx.textAlign = 'right';
   ctx.fillText(src, W - 24, 35);
   ctx.textAlign = 'left';
 
-  // category pill
   ctx.fillStyle = '#20201c';
   ctx.font = 'bold 11px Arial, sans-serif';
   var catW = ctx.measureText(cat).width + 20;
@@ -885,26 +894,21 @@ function _drawCard(ctx, W, H, headline, liner, cat, src, artImg) {
   ctx.fillStyle = '#efe9d8';
   ctx.fillText(cat, 34, 87);
 
-  // headline
   ctx.fillStyle = '#20201c';
   ctx.font = 'bold 26px Georgia, serif';
   var headLines = wrapText(ctx, headline, textW);
   var y = 124;
-  headLines.slice(0, 4).forEach(function(line) { ctx.fillText(line, 24, y); y += 34; });
+  headLines.slice(0, 4).forEach(function(l) { ctx.fillText(l, 24, y); y += 34; });
 
-  // divider
   y += 6;
   ctx.fillStyle = '#c4bda6';
   ctx.fillRect(24, y, textW, 1);
   y += 16;
 
-  // one-liner
   ctx.fillStyle = '#3a382f';
   ctx.font = '15px Georgia, serif';
-  var linerLines = wrapText(ctx, liner, textW);
-  linerLines.slice(0, 3).forEach(function(line) { ctx.fillText(line, 24, y); y += 23; });
+  wrapText(ctx, liner, textW).slice(0, 3).forEach(function(l) { ctx.fillText(l, 24, y); y += 23; });
 
-  // footer bar
   ctx.fillStyle = '#20201c';
   ctx.fillRect(0, H - 38, W, 38);
   ctx.fillStyle = '#efe9d8';
@@ -924,12 +928,15 @@ function shareCard(evt, idx) {
   var liner    = ispt ? (art.one_liner_pt || art.one_liner_en || '') : (art.one_liner_en || '');
   var cat      = (art.category || 'News').toUpperCase();
   var src      = art.source_domain || '';
-  var W = 800, H = 440;
+  var W = 800, H = 440, SPLIT = 510;
+  var iW = W - SPLIT, iH = H - 92;
+
+  function makeCV() { var c = document.createElement('canvas'); c.width = W; c.height = H; return c; }
 
   function dispatch(cv) {
-    var filename = 'lighthouse-' + (idx + 1) + '.png';
+    var fn = 'lighthouse-' + (idx + 1) + '.png';
     cv.toBlob(function(blob) {
-      var file = new File([blob], filename, { type: 'image/png' });
+      var file = new File([blob], fn, { type: 'image/png' });
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         navigator.share({ files: [file] }).catch(function() { _copyBlob(blob, btn); });
       } else {
@@ -938,37 +945,37 @@ function shareCard(evt, idx) {
     }, 'image/png');
   }
 
-  function makeCanvas() {
-    var cv = document.createElement('canvas');
-    cv.width = W; cv.height = H;
-    return cv;
+  function render(dithered) {
+    var cv = makeCV();
+    _drawCard(cv.getContext('2d'), W, H, headline, liner, cat, src, dithered);
+    try { dispatch(cv); }
+    catch(e) {
+      var cv2 = makeCV();
+      _drawCard(cv2.getContext('2d'), W, H, headline, liner, cat, src, null);
+      dispatch(cv2);
+    }
   }
 
-  if (art.image_url) {
+  // Load img src, dither it, call cb(ditheredCanvas | null)
+  function loadDither(imgSrc, cb) {
     var img = new Image();
     img.crossOrigin = 'anonymous';
     img.onload = function() {
-      var cv = makeCanvas();
-      _drawCard(cv.getContext('2d'), W, H, headline, liner, cat, src, img);
-      try {
-        dispatch(cv);
-      } catch(e) {
-        // canvas tainted by CORS — retry without image
-        var cv2 = makeCanvas();
-        _drawCard(cv2.getContext('2d'), W, H, headline, liner, cat, src, null);
-        dispatch(cv2);
-      }
+      var d = null;
+      try { d = _ditherImg(img, iW, iH); } catch(e) {}
+      cb(d);
     };
-    img.onerror = function() {
-      var cv = makeCanvas();
-      _drawCard(cv.getContext('2d'), W, H, headline, liner, cat, src, null);
-      dispatch(cv);
-    };
-    img.src = art.image_url;
+    img.onerror = function() { cb(null); };
+    img.src = imgSrc;
+  }
+
+  if (art.image_url) {
+    loadDither(art.image_url, function(d) {
+      if (d) { render(d); }
+      else { loadDither('the_lighthouse2.png', render); }
+    });
   } else {
-    var cv = makeCanvas();
-    _drawCard(cv.getContext('2d'), W, H, headline, liner, cat, src, null);
-    dispatch(cv);
+    loadDither('the_lighthouse2.png', render);
   }
 }
 
