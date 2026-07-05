@@ -267,6 +267,16 @@ a{color:inherit;text-decoration:none;}
   animation:lightning-flash 3.5s ease-in infinite;
 }
 
+/* ── Share button ── */
+.art-actions{display:flex;justify-content:flex-end;margin-top:8px;}
+.art-share-btn{
+  background:none;border:1px solid var(--hair);color:var(--m2);
+  padding:4px 6px;cursor:pointer;border-radius:2px;
+  display:inline-flex;align-items:center;
+  transition:background .15s,color .15s,border-color .15s;
+}
+.art-share-btn:hover{background:var(--ink);color:var(--paper);border-color:var(--ink);}
+
 /* ── Responsive ── */
 @media(max-width:680px){
   .sheet{padding:20px 18px 28px;}
@@ -450,6 +460,7 @@ const STRINGS = {
     ago_d:              'd ago',
     generated:          'Generated',
     made_by:            'Made by ricardobertolin',
+    save_img:           'Save image',
   },
   pt: {
     digital_daily:      'Jornal Digital',
@@ -489,6 +500,7 @@ const STRINGS = {
     ago_d:              'd atrás',
     generated:          'Gerado em',
     made_by:            'Feito por ricardobertolin',
+    save_img:           'Salvar imagem',
   }
 };
 let lang = 'en';
@@ -779,6 +791,11 @@ function renderArticles() {
           '<span class="meta-div"></span>' +
           '<span>' + esc(age) + '</span>' +
         '</div>' +
+        '<div class="art-actions">' +
+          '<button class="art-share-btn" onclick="shareCard(event,' + i + ')" title="' + t('save_img') + '">' +
+            '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>' +
+          '</button>' +
+        '</div>' +
       '</div>' +
       '</div>';
   });
@@ -800,6 +817,185 @@ function applyFilters() {
   document.getElementById('j-stats').textContent =
     t('showing') + ' ' + visible + ' ' + t('of') + ' ' + DATA.articles.length + ' ' + t('dispatches');
   updateDispatch();
+}
+
+// ── Share as image ───────────────────────────────────────────────────
+function wrapText(ctx, text, maxW) {
+  const words = (text || '').split(' ');
+  const lines = [];
+  let cur = '';
+  for (const w of words) {
+    const test = cur ? cur + ' ' + w : w;
+    if (ctx.measureText(test).width > maxW && cur) { lines.push(cur); cur = w; }
+    else cur = test;
+  }
+  if (cur) lines.push(cur);
+  return lines;
+}
+
+function _drawCard(ctx, W, H, headline, liner, cat, src, artImg) {
+  const SPLIT = artImg ? 510 : W;
+  const textW  = SPLIT - 48;
+
+  // paper background
+  ctx.fillStyle = '#efe9d8';
+  ctx.fillRect(0, 0, W, H);
+
+  // article image — right column, clipped
+  if (artImg) {
+    const iX = SPLIT, iY = 54, iW = W - SPLIT, iH = H - 54 - 38;
+    const scale = Math.max(iW / artImg.width, iH / artImg.height);
+    const sw = iW / scale, sh = iH / scale;
+    const sx = (artImg.width - sw) / 2, sy = (artImg.height - sh) / 2;
+    ctx.save();
+    ctx.beginPath(); ctx.rect(iX, iY, iW, iH); ctx.clip();
+    ctx.drawImage(artImg, sx, sy, sw, sh, iX, iY, iW, iH);
+    ctx.restore();
+    // column separator
+    ctx.fillStyle = 'rgba(32,32,28,.18)';
+    ctx.fillRect(SPLIT, 54, 1, H - 54 - 38);
+  }
+
+  // border
+  ctx.strokeStyle = '#20201c';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(1, 1, W - 2, H - 2);
+
+  // top bar
+  ctx.fillStyle = '#20201c';
+  ctx.fillRect(0, 0, W, 54);
+
+  // brand
+  ctx.fillStyle = '#efe9d8';
+  ctx.font = 'bold 18px Georgia, serif';
+  ctx.textAlign = 'left';
+  ctx.fillText('THE LIGHTHOUSE', 24, 35);
+
+  // source
+  ctx.font = '12px Georgia, serif';
+  ctx.textAlign = 'right';
+  ctx.fillText(src, W - 24, 35);
+  ctx.textAlign = 'left';
+
+  // category pill
+  ctx.fillStyle = '#20201c';
+  ctx.font = 'bold 11px Arial, sans-serif';
+  var catW = ctx.measureText(cat).width + 20;
+  ctx.fillRect(24, 72, catW, 22);
+  ctx.fillStyle = '#efe9d8';
+  ctx.fillText(cat, 34, 87);
+
+  // headline
+  ctx.fillStyle = '#20201c';
+  ctx.font = 'bold 26px Georgia, serif';
+  var headLines = wrapText(ctx, headline, textW);
+  var y = 124;
+  headLines.slice(0, 4).forEach(function(line) { ctx.fillText(line, 24, y); y += 34; });
+
+  // divider
+  y += 6;
+  ctx.fillStyle = '#c4bda6';
+  ctx.fillRect(24, y, textW, 1);
+  y += 16;
+
+  // one-liner
+  ctx.fillStyle = '#3a382f';
+  ctx.font = '15px Georgia, serif';
+  var linerLines = wrapText(ctx, liner, textW);
+  linerLines.slice(0, 3).forEach(function(line) { ctx.fillText(line, 24, y); y += 23; });
+
+  // footer bar
+  ctx.fillStyle = '#20201c';
+  ctx.fillRect(0, H - 38, W, 38);
+  ctx.fillStyle = '#efe9d8';
+  ctx.font = '12px Arial, sans-serif';
+  ctx.textAlign = 'left';
+  ctx.fillText(DATA.date, 24, H - 14);
+  ctx.textAlign = 'right';
+  ctx.fillText('ricardobertolin.github.io/the_lighthouse_app', W - 24, H - 14);
+  ctx.textAlign = 'left';
+}
+
+function shareCard(evt, idx) {
+  var btn = evt ? evt.currentTarget : null;
+  var art = DATA.articles[idx];
+  var ispt = lang === 'pt';
+  var headline = ispt ? (art.headline_pt || art.title) : (art.headline_en || art.title);
+  var liner    = ispt ? (art.one_liner_pt || art.one_liner_en || '') : (art.one_liner_en || '');
+  var cat      = (art.category || 'News').toUpperCase();
+  var src      = art.source_domain || '';
+  var W = 800, H = 440;
+
+  function dispatch(cv) {
+    var filename = 'lighthouse-' + (idx + 1) + '.png';
+    cv.toBlob(function(blob) {
+      var file = new File([blob], filename, { type: 'image/png' });
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        navigator.share({ files: [file] }).catch(function() { _copyBlob(blob, btn); });
+      } else {
+        _copyBlob(blob, btn);
+      }
+    }, 'image/png');
+  }
+
+  function makeCanvas() {
+    var cv = document.createElement('canvas');
+    cv.width = W; cv.height = H;
+    return cv;
+  }
+
+  if (art.image_url) {
+    var img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = function() {
+      var cv = makeCanvas();
+      _drawCard(cv.getContext('2d'), W, H, headline, liner, cat, src, img);
+      try {
+        dispatch(cv);
+      } catch(e) {
+        // canvas tainted by CORS — retry without image
+        var cv2 = makeCanvas();
+        _drawCard(cv2.getContext('2d'), W, H, headline, liner, cat, src, null);
+        dispatch(cv2);
+      }
+    };
+    img.onerror = function() {
+      var cv = makeCanvas();
+      _drawCard(cv.getContext('2d'), W, H, headline, liner, cat, src, null);
+      dispatch(cv);
+    };
+    img.src = art.image_url;
+  } else {
+    var cv = makeCanvas();
+    _drawCard(cv.getContext('2d'), W, H, headline, liner, cat, src, null);
+    dispatch(cv);
+  }
+}
+
+function _copyBlob(blob, btn) {
+  if (navigator.clipboard && navigator.clipboard.write) {
+    navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })])
+      .then(function() { _flashBtn(btn); })
+      .catch(function() { _dlBlob(blob, 'lighthouse.png'); });
+  } else {
+    _dlBlob(blob, 'lighthouse.png');
+  }
+}
+
+function _dlBlob(blob, name) {
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  setTimeout(function() { URL.revokeObjectURL(a.href); }, 1000);
+}
+
+function _flashBtn(btn) {
+  if (!btn) return;
+  var el = btn.closest ? (btn.closest('.art-share-btn') || btn) : btn;
+  el.style.background = 'var(--ink)';
+  el.style.color = 'var(--paper)';
+  setTimeout(function() { el.style.background = ''; el.style.color = ''; }, 900);
 }
 
 // ── Click tracking ────────────────────────────────────────────────────
