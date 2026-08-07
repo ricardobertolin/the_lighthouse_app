@@ -739,8 +739,9 @@ function renderBriefing() {
 // ── Articles ─────────────────────────────────────────────────────────
 function renderArticles() {
   let html = '';
+  const maxRel = Math.max(...DATA.articles.map(a => a.relevance_score || 0), 0.01);
   DATA.articles.forEach((art, i) => {
-    const relPct = Math.round((art.relevance_score || 0) * 100);
+    const relPct = Math.round(((art.relevance_score || 0) / maxRel) * 100);
     const corr   = art.corroboration || 1;
     const cat    = art.category || 'Other';
     const origin = art.origin === 'feed' ? 'RSS' : 'Search';

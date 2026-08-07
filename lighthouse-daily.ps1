@@ -10,34 +10,59 @@ function Log($msg) {
     Write-Host $line
 }
 
+function Get-GhHeaders {
+    $h = @{ 'User-Agent' = 'lighthouse-daily'; 'Accept' = 'application/vnd.github+json' }
+    # Authenticated calls get 5000 req/hr instead of 60; optional.
+    if     ($env:GH_TOKEN)     { $h['Authorization'] = 'Bearer ' + $env:GH_TOKEN }
+    elseif ($env:GITHUB_TOKEN) { $h['Authorization'] = 'Bearer ' + $env:GITHUB_TOKEN }
+    return $h
+}
+
+# Polls the "pages build and deployment" run for a SPECIFIC commit. Matching on
+# the sha matters: querying only the newest deployment reports stale successes
+# from previous days whenever a build fails before the deploy job runs.
 function Wait-PagesDeployment {
-    param([int]$MaxWaitSec = 180, [int]$PollSec = 20)
+    param(
+        [Parameter(Mandatory = $true)][string]$Sha,
+        [int]$MaxWaitSec = 600,
+        [int]$PollSec    = 30
+    )
 
-    $headers  = @{ 'User-Agent' = 'lighthouse-daily' }
-    $depsUrl  = 'https://api.github.com/repos/' + $Owner + '/' + $Repo + '/deployments?environment=github-pages&per_page=1'
+    $headers  = Get-GhHeaders
+    $runsUrl  = 'https://api.github.com/repos/' + $Owner + '/' + $Repo + '/actions/runs?head_sha=' + $Sha + '&per_page=5'
     $deadline = (Get-Date).AddSeconds($MaxWaitSec)
+    $short    = $Sha.Substring(0, 7)
 
-    Log ('Waiting for Pages deployment (up to ' + $MaxWaitSec + 's)...')
-    Start-Sleep -Seconds 25
+    Log ('Waiting for Pages build of ' + $short + ' (up to ' + $MaxWaitSec + 's)...')
+    Start-Sleep -Seconds 20
 
     while ((Get-Date) -lt $deadline) {
         try {
-            $deps = Invoke-RestMethod -Uri $depsUrl -Headers $headers -TimeoutSec 10
-            if ($deps.Count -gt 0) {
-                $statusUrl = 'https://api.github.com/repos/' + $Owner + '/' + $Repo + '/deployments/' + $deps[0].id + '/statuses?per_page=1'
-                $statuses  = Invoke-RestMethod -Uri $statusUrl -Headers $headers -TimeoutSec 10
-                if ($statuses.Count -gt 0) {
-                    $state = $statuses[0].state
-                    Log ('Pages status: ' + $state)
-                    if ($state -eq 'success')                              { return 'success' }
-                    if ($state -in @('failure', 'error', 'inactive'))      { return 'failed'  }
-                }
+            $runs = Invoke-RestMethod -Uri $runsUrl -Headers $headers -TimeoutSec 15
+            $run  = $runs.workflow_runs | Where-Object { $_.name -like 'pages build*' } | Select-Object -First 1
+
+            if (-not $run) {
+                Log ('  no Pages run for ' + $short + ' yet...')
+            }
+            elseif ($run.status -ne 'completed') {
+                Log ('  build ' + $short + ': ' + $run.status)
+            }
+            elseif ($run.conclusion -eq 'success') {
+                Log ('Pages build SUCCEEDED for ' + $short)
+                return 'success'
+            }
+            else {
+                Log ('Pages build ' + $run.conclusion.ToUpper() + ' for ' + $short)
+                Log ('  ' + $run.html_url)
+                return 'failed'
             }
         } catch {
-            Log ('API poll error: ' + $_)
+            Log ('API poll error: ' + $_.Exception.Message)
         }
         Start-Sleep -Seconds $PollSec
     }
+
+    Log ('TIMEOUT waiting for Pages build of ' + $short)
     return 'timeout'
 }
 
@@ -74,7 +99,8 @@ if ($LASTEXITCODE -ne 0) {
 
 # ── Check Pages deployment, retry once if it fails ───────────────────────────
 
-$result = Wait-PagesDeployment -MaxWaitSec 180 -PollSec 20
+$sha    = (git rev-parse HEAD).Trim()
+$result = Wait-PagesDeployment -Sha $sha
 
 if ($result -eq 'success') {
     Log '=== Done. Digest is live. ==='
@@ -90,12 +116,14 @@ if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
-$result2 = Wait-PagesDeployment -MaxWaitSec 180 -PollSec 20
+$sha2    = (git rev-parse HEAD).Trim()
+$result2 = Wait-PagesDeployment -Sha $sha2
 
 if ($result2 -eq 'success') {
     Log '=== Done (after retry). Digest is live. ==='
     exit 0
 } else {
-    Log ('WARNING: deployment still ' + $result2 + ' after retry. Check GitHub Pages manually.')
+    Log ('ERROR: deployment still ' + $result2 + ' after retry. Digest is NOT live.')
+    Log ('  https://github.com/' + $Owner + '/' + $Repo + '/actions')
     exit 1
 }
