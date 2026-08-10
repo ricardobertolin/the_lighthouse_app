@@ -2,14 +2,17 @@
 The Lighthouse — daily personal news digest.
 
 Usage:
-  python -m digest                  Full pipeline, opens browser.
-  python -m digest --no-browser     Full pipeline, no browser.
-  python -m digest --fetch-only     Stage 1: fetch + print (no scoring/LLM).
-  python -m digest --config PATH    Use an alternate config.yaml.
+  python -m digest                    Full pipeline, opens browser.
+  python -m digest --no-browser       Full pipeline, no browser.
+  python -m digest --fetch-only       Stage 1: fetch + print (no scoring/LLM).
+  python -m digest --render-only      Re-render today's digest from the DB.
+  python -m digest --ingest-clicks F  Import clicks exported from the page.
+  python -m digest --config PATH      Use an alternate config.yaml.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import sys
@@ -44,6 +47,57 @@ def _setup_logging() -> None:
     logging.getLogger("transformers").setLevel(logging.WARNING)
 
 
+_FAKE_WEATHER = {
+    "sunny":       {"location": "Curitiba, PR", "wmo_code": 0,  "temp_max": 26, "temp_min": 16, "wind_max_kmh": 10, "precipitation_mm": 0,   "description": "Clear sky"},
+    "cloudy":      {"location": "Curitiba, PR", "wmo_code": 3,  "temp_max": 20, "temp_min": 14, "wind_max_kmh": 18, "precipitation_mm": 0,   "description": "Overcast"},
+    "rainy":       {"location": "Curitiba, PR", "wmo_code": 61, "temp_max": 17, "temp_min": 13, "wind_max_kmh": 28, "precipitation_mm": 8.0, "description": "Rain"},
+    "foggy":       {"location": "Curitiba, PR", "wmo_code": 45, "temp_max": 15, "temp_min": 11, "wind_max_kmh": 6,  "precipitation_mm": 0,   "description": "Fog"},
+    "snow":        {"location": "Curitiba, PR", "wmo_code": 71, "temp_max": 3,  "temp_min": -1, "wind_max_kmh": 20, "precipitation_mm": 4.0, "description": "Snow"},
+    "thunderstorm":{"location": "Curitiba, PR", "wmo_code": 95, "temp_max": 19, "temp_min": 15, "wind_max_kmh": 55, "precipitation_mm": 15., "description": "Thunderstorm"},
+}
+
+
+def _ingest_clicks(conn, path: Path, log) -> int:
+    """
+    Import the click log exported from the digest page.
+
+    Accepts the raw localStorage array (list of {url, domain, at}) or an object
+    wrapping it under "clicks".
+    """
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        log.error("Could not read clicks file %s: %s", path, exc)
+        return 0
+
+    entries = raw.get("clicks", []) if isinstance(raw, dict) else raw
+    if not isinstance(entries, list):
+        log.error("Unexpected clicks format in %s — expected a list.", path)
+        return 0
+
+    from .db import log_click, get_click_domain_counts
+
+    new = 0
+    for entry in entries:
+        if not isinstance(entry, dict) or not entry.get("url"):
+            continue
+        if log_click(
+            conn,
+            url=entry["url"],
+            source_domain=entry.get("domain", ""),
+            # "ts" is the key older builds of the page wrote.
+            clicked_at=entry.get("at") or entry.get("ts"),
+        ):
+            new += 1
+
+    total = conn.execute("SELECT COUNT(*) FROM clicks").fetchone()[0]
+    log.info("Imported %d new clicks (%d total in DB).", new, total)
+    top = list(get_click_domain_counts(conn).items())[:5]
+    if top:
+        log.info("Most-clicked domains: %s", ", ".join(f"{d} ({n})" for d, n in top))
+    return new
+
+
 def main() -> None:
     _setup_logging()
     log = logging.getLogger("digest")
@@ -60,11 +114,11 @@ def main() -> None:
     parser.add_argument(
         "--render-only",
         action="store_true",
-        help="Skip fetch/score/LLM; re-render today's DB articles + fresh weather.",
+        help="Skip fetch/score/LLM; re-render today's digest from the stored synthesis.",
     )
     parser.add_argument(
         "--weather",
-        choices=["sunny", "cloudy", "rainy", "foggy", "snow", "thunderstorm"],
+        choices=sorted(_FAKE_WEATHER),
         default=None,
         metavar="CONDITION",
         help="Override weather for testing: sunny|cloudy|rainy|foggy|snow|thunderstorm. Implies --render-only.",
@@ -77,7 +131,18 @@ def main() -> None:
     parser.add_argument(
         "--no-browser",
         action="store_true",
-        help="Generate digest.html but do not open it in the browser.",
+        help="Generate index.html but do not open it in the browser.",
+    )
+    parser.add_argument(
+        "--ingest-clicks",
+        metavar="PATH",
+        default=None,
+        help="Import a clicks JSON exported from the digest page, then exit.",
+    )
+    parser.add_argument(
+        "--prune",
+        action="store_true",
+        help="Apply the retention policy (with VACUUM) and exit.",
     )
     parser.add_argument(
         "--config",
@@ -89,10 +154,13 @@ def main() -> None:
 
     # Lazy imports — keep startup fast for --help
     from .config import load_config, CONFIG_PATH
-    from .db import get_conn, upsert_article, get_today_articles
+    from .db import (
+        get_conn, upsert_article, get_today_articles, get_articles_by_hash,
+        update_images, save_synthesis, get_synthesis, get_clicked_texts, prune,
+    )
     from .fetch import fetch_all, print_stage1_report, enrich_missing_images
     from .score import score_articles, print_stage2_report
-    from .synthesize import synthesize
+    from .synthesize import synthesize, DEFAULT_MODEL
     from .weather import fetch_weather
     from .render import render, open_browser, OUTPUT_PATH
 
@@ -102,6 +170,25 @@ def main() -> None:
         sys.exit(1)
 
     cfg = load_config(cfg_path)
+    conn = get_conn()
+    log.info("Database ready.")
+
+    # ── Standalone maintenance modes ──────────────────────────────
+    if args.ingest_clicks:
+        _ingest_clicks(conn, Path(args.ingest_clicks), log)
+        conn.close()
+        return
+
+    if args.prune:
+        prune(
+            conn,
+            keep_full_days=cfg.retention.keep_full_days,
+            delete_after_days=cfg.retention.delete_after_days,
+            vacuum=True,
+        )
+        conn.close()
+        return
+
     gnews_key = os.environ.get("GNEWS_API_KEY")
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
 
@@ -110,32 +197,41 @@ def main() -> None:
     if not anthropic_key and not args.fetch_only:
         log.warning("ANTHROPIC_API_KEY not set — synthesis will use fallback text.")
 
-    conn = get_conn()
-    log.info("Database ready.")
-
-    # ── Weather override ──────────────────────────────────────────
-    _FAKE_WEATHER = {
-        "sunny":       {"wmo_code": 0,  "temp_max": 26, "temp_min": 16, "wind_max_kmh": 10, "precipitation_mm": 0,   "description": "Clear sky"},
-        "cloudy":      {"wmo_code": 3,  "temp_max": 20, "temp_min": 14, "wind_max_kmh": 18, "precipitation_mm": 0,   "description": "Overcast"},
-        "rainy":       {"wmo_code": 61, "temp_max": 17, "temp_min": 13, "wind_max_kmh": 28, "precipitation_mm": 8.0, "description": "Rain"},
-        "foggy":       {"wmo_code": 45, "temp_max": 15, "temp_min": 11, "wind_max_kmh": 6,  "precipitation_mm": 0,   "description": "Fog"},
-        "snow":        {"wmo_code": 71, "temp_max": 3,  "temp_min": -1, "wind_max_kmh": 20, "precipitation_mm": 4.0, "description": "Snow"},
-        "thunderstorm":{"wmo_code": 95, "temp_max": 19, "temp_min": 15, "wind_max_kmh": 55, "precipitation_mm": 15., "description": "Thunderstorm"},
-    }
     if args.weather or args.all_weathers:
         args.render_only = True
 
     # ── Render-only shortcut ──────────────────────────────────────
     if args.render_only:
-        top = get_today_articles(conn)
-        if not top:
-            log.warning("No articles for today in the DB — run without --render-only first.")
-            conn.close()
-            return
-        top = top[: cfg.top_n]
-        log.info("Render-only: %d articles from DB.", len(top))
-        from .synthesize import _fallback
-        synthesis = _fallback(top)
+        stored = get_synthesis(conn)
+        previewing = bool(args.weather or args.all_weathers)
+
+        if stored:
+            synthesis, hashes = stored
+            top = get_articles_by_hash(conn, hashes)
+            log.info("Render-only: %d articles from today's stored synthesis.", len(top))
+        else:
+            # Without the stored synthesis we can only produce untranslated
+            # titles, no categories and no regions. That is fine for a weather
+            # preview (separate file) but would silently replace the live page
+            # with a degraded one.
+            if not previewing:
+                log.error(
+                    "No stored synthesis for today — re-rendering would overwrite %s "
+                    "with untranslated titles and no categories. Run the full "
+                    "pipeline instead, or use --weather to preview to a separate file.",
+                    OUTPUT_PATH.name,
+                )
+                conn.close()
+                sys.exit(1)
+            from .synthesize import _fallback
+            top = get_today_articles(conn)[: cfg.top_n]
+            if not top:
+                log.warning("No articles for today in the DB — run without --render-only first.")
+                conn.close()
+                return
+            synthesis = _fallback(top)
+            log.warning("No stored synthesis — preview will show untranslated titles.")
+
         if args.all_weathers:
             for condition, fake_wx in _FAKE_WEATHER.items():
                 out_path = OUTPUT_PATH.parent / f"digest_{condition}.html"
@@ -149,12 +245,15 @@ def main() -> None:
 
         if args.weather:
             weather = _FAKE_WEATHER[args.weather]
-            log.info("Weather override: %s", args.weather)
+            out_path = OUTPUT_PATH.parent / f"digest_{args.weather}.html"
+            log.info("Weather override: %s → %s", args.weather, out_path.name)
         else:
             log.info("Fetching weather…")
             weather = fetch_weather()
+            out_path = OUTPUT_PATH
+
         log.info("Rendering…")
-        output = render(top, synthesis, weather)
+        output = render(top, synthesis, weather, output_path=out_path)
         log.info("Digest written → %s", output)
         if not args.no_browser:
             open_browser(output, cfg.browser)
@@ -176,7 +275,15 @@ def main() -> None:
 
     # ── Stage 2-3: Score ──────────────────────────────────────────
     log.info("Stage 2-3 — scoring articles…")
-    scored = score_articles(articles, cfg)  # returns ALL scored, sorted by final_score
+    clicked_texts = get_clicked_texts(conn)
+    if clicked_texts:
+        log.info("Personalizing with %d clicked articles.", len(clicked_texts))
+    else:
+        log.info(
+            "No clicks recorded yet — using configured topics only. "
+            "Export clicks from the page and run --ingest-clicks to personalize."
+        )
+    scored = score_articles(articles, cfg, clicked_texts)  # ALL scored, sorted
     print_stage2_report(scored, show=cfg.top_n)
 
     # Persist ALL scored articles to DB so none reappear in future runs,
@@ -201,10 +308,13 @@ def main() -> None:
     # Stage 4b: enrich missing images for the top articles
     log.info("Stage 4b — fetching OG images for articles missing thumbnails…")
     top = enrich_missing_images(top)
+    written = update_images(conn, top)
+    log.info("Persisted %d enriched thumbnails.", written)
 
     # ── Stage 5: Synthesize ───────────────────────────────────────
     log.info("Stage 5 — synthesizing with Claude…")
     synthesis = synthesize(top)
+    save_synthesis(conn, synthesis, top, model=DEFAULT_MODEL)
 
     # ── Stage 6: Weather ──────────────────────────────────────────
     log.info("Stage 6 — fetching weather…")
@@ -217,11 +327,18 @@ def main() -> None:
     )
 
     # ── Stage 7: Render ───────────────────────────────────────────
-    log.info("Stage 7 — rendering digest.html…")
+    log.info("Stage 7 — rendering index.html…")
     output = render(top, synthesis, weather)
     log.info("Digest written → %s", output)
 
-    # ── Stage 8: Open browser ─────────────────────────────────────
+    # ── Stage 8: Retention ────────────────────────────────────────
+    prune(
+        conn,
+        keep_full_days=cfg.retention.keep_full_days,
+        delete_after_days=cfg.retention.delete_after_days,
+    )
+
+    # ── Stage 9: Open browser ─────────────────────────────────────
     if not args.no_browser:
         log.info("Opening digest in browser (%s)…", cfg.browser)
         open_browser(output, cfg.browser)

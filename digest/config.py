@@ -29,6 +29,14 @@ class DomainReputation:
 
 
 @dataclass
+class RetentionConfig:
+    """Article text is only needed while it can still be re-rendered; dedup
+    only ever reads url_hash. See db.prune."""
+    keep_full_days: int = 30
+    delete_after_days: int = 365
+
+
+@dataclass
 class Config:
     trusted_feeds: list[str]
     search_topics: list[str]
@@ -39,6 +47,14 @@ class Config:
     top_n: int
     gnews: GNewsConfig
     browser: str = "default"
+    # Embedded separately and scored by best match, so a story only has to hit
+    # one interest rather than the average of all of them.
+    interest_topics: list[str] = field(default_factory=list)
+    # How far to pull relevance toward the centroid of clicked articles.
+    click_weight: float = 0.30
+    # Cosine above which two articles count as the same story.
+    corroboration_similarity: float = 0.72
+    retention: RetentionConfig = field(default_factory=RetentionConfig)
 
 
 def load_config(path: Path = CONFIG_PATH) -> Config:
@@ -65,6 +81,12 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
         corroboration=weights_raw.get("corroboration", 0.20),
     )
 
+    ret_raw = raw.get("retention", {})
+    retention = RetentionConfig(
+        keep_full_days=ret_raw.get("keep_full_days", 30),
+        delete_after_days=ret_raw.get("delete_after_days", 365),
+    )
+
     return Config(
         trusted_feeds=raw.get("trusted_feeds", []),
         search_topics=raw.get("search_topics", []),
@@ -75,4 +97,8 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
         top_n=raw.get("top_n", 20),
         gnews=gnews,
         browser=raw.get("browser", "default"),
+        interest_topics=raw.get("interest_topics", []),
+        click_weight=raw.get("click_weight", 0.30),
+        corroboration_similarity=raw.get("corroboration_similarity", 0.72),
+        retention=retention,
     )

@@ -1,0 +1,94 @@
+name: Daily digest
+
+on:
+  schedule:
+    # 13:00 UTC = 10:00 in America/Sao_Paulo. Brazil has had no DST since 2019,
+    # so this is a stable local time year-round.
+    - cron: "0 13 * * *"
+  workflow_dispatch:
+    inputs:
+      skip_commit:
+        description: "Build the digest but don't commit it"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+# Never let a manual run collide with the scheduled one — both write index.html
+# and the article DB.
+concurrency:
+  group: daily-digest
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # CPU-only wheel: the default torch pulls ~2 GB of CUDA libraries
+          # that are useless on a runner with no GPU.
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+
+      - name: Cache sentence-transformers model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-all-MiniLM-L6-v2-v1
+
+      # The article DB is the dedup memory. Cache entries are immutable, so the
+      # key carries the run id and restore-keys falls back to the newest match.
+      # Worst case (cache evicted after 7 idle days) some already-seen articles
+      # resurface once — the digest degrades, it does not break.
+      - name: Restore article database
+        uses: actions/cache/restore@v4
+        with:
+          path: digest.db
+          key: digest-db-${{ github.run_id }}
+          restore-keys: digest-db-
+
+      - name: Build digest
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GNEWS_API_KEY: ${{ secrets.GNEWS_API_KEY }}
+        run: python -m digest --no-browser
+
+      - name: Save article database
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: digest.db
+          key: digest-db-${{ github.run_id }}
+
+      - name: Commit and push
+        if: ${{ !inputs.skip_commit }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet -- index.html; then
+            echo "index.html unchanged — nothing to commit."
+            exit 0
+          fi
+          git add index.html
+          git commit -m "digest: $(date -u +%Y-%m-%d)"
+          git push
+
+      - name: Upload digest as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ github.run_id }}
+          path: index.html
+          retention-days: 7

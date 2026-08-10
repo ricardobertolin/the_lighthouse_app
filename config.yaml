@@ -45,6 +45,31 @@ interest_paragraph: >
   startups, and the venture capital ecosystem. I read both Portuguese and English and want the
   best global stories regardless of language; regional Brazilian coverage is a bonus.
 
+# Each topic is embedded separately and an article scores on its BEST match.
+# A single vector averaged over all of these sits between them and is close to
+# none — which is why raw relevance only spanned ~0.09 on average.
+# Delete this list to fall back to sentence-splitting interest_paragraph.
+interest_topics:
+  - artificial intelligence, machine learning, and AI research
+  - software engineering, developer tools, and programming languages
+  - technology companies, startups, and venture capital
+  - global geopolitics and international relations
+  - macroeconomics, markets, and trade
+  - Brazilian national politics and economy
+  - Curitiba and Paraná regional news
+  - climate change, the energy transition, and sustainability
+  - space exploration and astronomy
+  - science research in biology, physics, and medicine
+
+# How far relevance is pulled toward the centroid of articles you actually
+# clicked. 0 disables learning; 1 ignores the topics above entirely.
+# Has no effect until clicks are imported (see --ingest-clicks).
+click_weight: 0.30
+
+# Cosine similarity above which two articles are treated as the same story,
+# for the corroboration signal. Lower = more aggressive clustering.
+corroboration_similarity: 0.72
+
 domain_reputation:
   trusted:
     - bbc.com
@@ -93,6 +118,13 @@ top_n: 20
 gnews:
   max_daily_queries: 15
   rate_limit_seconds: 1.1
+
+# Article text is only needed while a digest can still be re-rendered; dedup
+# only ever reads url_hash. Without this the DB grew ~700 KB/day, 21 MB of the
+# first 38 MB being summaries for articles that will never be shown again.
+retention:
+  keep_full_days: 30      # after this, strip title/summary but keep the hash
+  delete_after_days: 365  # after this, drop the row entirely
 
 # Browser to open the digest. Options:
 #   "default"  — use the OS default browser

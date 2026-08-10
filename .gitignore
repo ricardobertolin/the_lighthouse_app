@@ -4,8 +4,14 @@ __pycache__/
 
 # Runtime artifacts
 digest.db
+digest.db-wal
+digest.db-shm
+digest.db.bak
 digest.html
 digest_*.html
+
+# Exported reading history (see --ingest-clicks)
+lighthouse-clicks-*.json
 
 # Environment / secrets — never commit keys
 .env

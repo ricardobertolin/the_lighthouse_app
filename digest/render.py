@@ -233,6 +233,19 @@ a{color:inherit;text-decoration:none;}
   letter-spacing:1px;text-transform:uppercase;color:var(--m3);
   padding-bottom:14px;
 }
+/* Reading-history export — feeds `python -m digest --ingest-clicks` */
+.reading-log{
+  text-align:center;font-family:'Oswald',sans-serif;font-size:10px;
+  letter-spacing:1px;text-transform:uppercase;color:var(--m3);
+  padding-bottom:16px;
+}
+.reading-log button{
+  font:inherit;letter-spacing:1px;text-transform:uppercase;
+  background:none;border:1px solid var(--m3);color:var(--m3);
+  padding:3px 9px;margin-left:8px;cursor:pointer;
+}
+.reading-log button:hover{ background:var(--ink);color:var(--paper);border-color:var(--ink); }
+.reading-log[hidden]{ display:none; }
 
 /* ── Weather animations ── */
 @keyframes rainfall {
@@ -415,6 +428,11 @@ a{color:inherit;text-decoration:none;}
 </div><!-- .desk -->
 
 <div class="gen-footer" id="j-gen-time"></div>
+<div class="reading-log" id="j-reading-log" hidden>
+  <span id="j-reading-count"></span>
+  <button type="button" id="j-export-clicks">Export</button>
+  <button type="button" id="j-clear-clicks">Clear</button>
+</div>
 <div class="made-by" id="j-made-by">Made by ricardobertolin</div>
 
 <script>
@@ -461,6 +479,8 @@ const STRINGS = {
     generated:          'Generated',
     made_by:            'Made by ricardobertolin',
     save_img:           'Save image',
+    readingLog:         'read since last export',
+    clearConfirm:       'Clear your reading history? This cannot be undone.',
   },
   pt: {
     digital_daily:      'Jornal Digital',
@@ -501,6 +521,8 @@ const STRINGS = {
     generated:          'Gerado em',
     made_by:            'Feito por ricardobertolin',
     save_img:           'Salvar imagem',
+    readingLog:         'lidos desde a última exportação',
+    clearConfirm:       'Limpar seu histórico de leitura? Isso não pode ser desfeito.',
   }
 };
 let lang = 'en';
@@ -601,6 +623,7 @@ function updateStaticLabels() {
   document.getElementById('j-briefing-label').textContent   = t('todays_briefing');
   document.getElementById('j-end-edition').textContent      = t('end_of_edition');
   document.getElementById('j-made-by').textContent          = t('made_by');
+  if (typeof updateReadingLog === 'function') updateReadingLog();
 }
 
 // ── Masthead ─────────────────────────────────────────────────────────
@@ -1007,14 +1030,49 @@ function _flashBtn(btn) {
 }
 
 // ── Click tracking ────────────────────────────────────────────────────
+// The page is static (GitHub Pages), so there is nowhere to POST to. Clicks
+// accumulate here and are exported as a file that the pipeline imports with
+// `python -m digest --ingest-clicks`, which feeds the interest centroid used
+// for relevance scoring.
+const CLICK_KEY = 'tl_clicks';
+
+function readClicks() {
+  try { return JSON.parse(localStorage.getItem(CLICK_KEY) || '[]'); }
+  catch(_) { return []; }
+}
+
 function trackClick(url, domain) {
   try {
-    const key = 'tl_clicks';
-    const clicks = JSON.parse(localStorage.getItem(key) || '[]');
-    clicks.push({ url, domain, ts: new Date().toISOString() });
-    if (clicks.length > 500) clicks.splice(0, clicks.length - 500);
-    localStorage.setItem(key, JSON.stringify(clicks));
+    const clicks = readClicks();
+    clicks.push({ url: url, domain: domain, at: new Date().toISOString() });
+    if (clicks.length > 2000) clicks.splice(0, clicks.length - 2000);
+    localStorage.setItem(CLICK_KEY, JSON.stringify(clicks));
+    updateReadingLog();
   } catch(_) {}
+}
+
+function updateReadingLog() {
+  const clicks = readClicks();
+  const box = document.getElementById('j-reading-log');
+  if (!box) return;
+  box.hidden = clicks.length === 0;
+  const label = document.getElementById('j-reading-count');
+  if (label) label.textContent = clicks.length + ' ' + t('readingLog');
+}
+
+function exportClicks() {
+  const clicks = readClicks();
+  if (!clicks.length) return;
+  const blob = new Blob([JSON.stringify(clicks, null, 2)], { type: 'application/json' });
+  const stamp = new Date().toISOString().slice(0, 10);
+  _dlBlob(blob, 'lighthouse-clicks-' + stamp + '.json');
+  _flashBtn(document.getElementById('j-export-clicks'));
+}
+
+function clearClicks() {
+  if (!confirm(t('clearConfirm'))) return;
+  try { localStorage.removeItem(CLICK_KEY); } catch(_) {}
+  updateReadingLog();
 }
 
 // ── Gen footer ───────────────────────────────────────────────────────
@@ -1036,6 +1094,10 @@ function init() {
   renderArticles();
   applyFilters();
   updateGenFooter();
+  updateReadingLog();
+
+  document.getElementById('j-export-clicks').addEventListener('click', exportClicks);
+  document.getElementById('j-clear-clicks').addEventListener('click', clearClicks);
 
   document.getElementById('j-rel').addEventListener('input', function() {
     minRel = parseInt(this.value);

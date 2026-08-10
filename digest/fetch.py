@@ -197,25 +197,21 @@ class GNewsProvider:
 
 
 # ---------------------------------------------------------------------------
-# Dedup + corroboration
+# Dedup
 
-def dedup_and_corroborate(articles: list[dict], conn) -> list[dict]:
+def dedup(articles: list[dict], conn) -> list[dict]:
     """
     1. Remove URL-exact duplicates within today's batch.
-    2. Count distinct source_domains per title_hash (corroboration signal).
-    3. Remove articles whose url_hash is already in the DB (yesterday+ dedup).
-    Returns the fresh, annotated list.
+    2. Remove articles whose url_hash is already in the DB (yesterday+ dedup).
+
+    Corroboration used to be computed here by exact title match, which found
+    a second source for 0.7% of articles. It now happens in score.py by
+    clustering the article embeddings, which catches the same story reported
+    in different words.
     """
-    # Pass 1: build title → {domains} map across the whole raw batch
-    title_domains: dict[str, set[str]] = {}
     seen_url_hashes: set[str] = set()
-
-    for art in articles:
-        th = art["title_hash"]
-        title_domains.setdefault(th, set()).add(art["source_domain"])
-
-    # Pass 2: deduplicate and filter
     fresh: list[dict] = []
+
     for art in articles:
         uh = art["url_hash"]
 
@@ -226,9 +222,7 @@ def dedup_and_corroborate(articles: list[dict], conn) -> list[dict]:
         if is_seen(conn, uh):
             continue  # already in DB (any previous day or earlier today)
 
-        art = dict(art)  # don't mutate original
-        art["corroboration"] = len(title_domains.get(art["title_hash"], {art["source_domain"]}))
-        fresh.append(art)
+        fresh.append(dict(art))  # don't mutate original
 
     return fresh
 
@@ -252,9 +246,16 @@ def fetch_all(cfg: Config, gnews_key: str | None, conn) -> list[dict]:
         )
         en_topics = cfg.search_topics
         pt_topics = cfg.search_topics_pt
-        # Allocate budget: pt topics get up to 1/3 of the cap, rest goes to en
-        pt_budget = min(len(pt_topics), cfg.gnews.max_daily_queries // 3)
-        en_budget = cfg.gnews.max_daily_queries - pt_budget
+        cap = cfg.gnews.max_daily_queries
+        # Allocate budget: pt topics get up to 1/3 of the cap, rest goes to en.
+        # Whatever one language doesn't use is handed to the other — a fixed
+        # split left 3 of 15 queries unspent every day.
+        pt_budget = min(len(pt_topics), cap // 3)
+        en_budget = min(len(en_topics), cap - pt_budget)
+        pt_budget = min(len(pt_topics), cap - en_budget)
+        logger.info(
+            "GNews budget: %d queries -> %d en + %d pt", cap, en_budget, pt_budget
+        )
         for topic in en_topics[:en_budget]:
             if provider.queries_remaining <= 0:
                 break
@@ -266,8 +267,7 @@ def fetch_all(cfg: Config, gnews_key: str | None, conn) -> list[dict]:
     else:
         logger.warning("GNEWS_API_KEY not set — skipping discovery queries")
 
-    # Dedup + corroboration
-    fresh = dedup_and_corroborate(articles, conn)
+    fresh = dedup(articles, conn)
 
     logger.info(
         "Fetch complete: %d raw articles -> %d fresh after dedup", len(articles), len(fresh)
