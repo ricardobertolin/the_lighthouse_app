@@ -144,8 +144,30 @@ class ReputationTests(unittest.TestCase):
         self.assertEqual(_reputation_score("notbbc.com", self.rep), 0.40)
 
     def test_blocked_matches_subdomains(self):
-        self.assertTrue(_is_blocked("a.spam.example", self.rep))
-        self.assertFalse(_is_blocked("notspam.example", self.rep))
+        self.assertTrue(_is_blocked("a.spam.example", "https://a.spam.example/x", self.rep))
+        self.assertFalse(_is_blocked("notspam.example", "https://notspam.example/x", self.rep))
+
+
+class BlockedUrlPatternTests(unittest.TestCase):
+    """BBC ships podcast episodes through the technology news feed."""
+
+    def setUp(self):
+        self.rep = DomainReputation(
+            trusted=["bbc.co.uk"], blocked_url_patterns=["bbc.co.uk/sounds/"]
+        )
+
+    def test_blocks_matching_path_on_an_otherwise_trusted_domain(self):
+        self.assertTrue(
+            _is_blocked("bbc.co.uk", "https://www.bbc.co.uk/sounds/play/w3ct8jy7", self.rep)
+        )
+
+    def test_leaves_news_on_the_same_domain_alone(self):
+        self.assertFalse(
+            _is_blocked("bbc.co.uk", "https://www.bbc.co.uk/news/technology-123", self.rep)
+        )
+
+    def test_missing_url_does_not_raise(self):
+        self.assertFalse(_is_blocked("bbc.co.uk", "", self.rep))
 
 
 class DedupTests(unittest.TestCase):
@@ -184,6 +206,55 @@ class DomainTests(unittest.TestCase):
 
     def test_keeps_other_subdomains(self):
         self.assertEqual(_domain("https://feeds.bbci.co.uk/x"), "feeds.bbci.co.uk")
+
+
+class RecurringTitleTests(unittest.TestCase):
+    """
+    A title repeating verbatim across days is a strand, not a story. Each
+    episode gets a fresh URL, so url_hash dedup never catches it.
+    """
+
+    def setUp(self):
+        self.conn, _ = _tmp_conn()
+
+    def tearDown(self):
+        self.conn.close()
+
+    def _seen(self, title, url, day):
+        art = _make_article(title, "summary", url, "2026-08-10T00:00:00", "feed")
+        art["seen_date"] = day
+        db.upsert_article(self.conn, art)
+        self.conn.execute(
+            "UPDATE articles SET seen_date = ? WHERE url_hash = ?",
+            (day, art["url_hash"]),
+        )
+        self.conn.commit()
+        return art
+
+    def test_flags_a_title_repeating_across_days(self):
+        for n, day in enumerate(["2026-08-01", "2026-08-08", "2026-08-15"]):
+            self._seen("Tech Life", f"https://bbc.co.uk/sounds/play/w{n}", day)
+        art = self._seen("Tech Life", "https://bbc.co.uk/sounds/play/w9", "2026-08-22")
+        self.assertIn(art["title_hash"], db.get_recurring_title_hashes(self.conn, 3))
+
+    def test_ignores_a_title_below_the_threshold(self):
+        for n, day in enumerate(["2026-08-01", "2026-08-08"]):
+            art = self._seen("Weekly Roundup", f"https://x.com/{n}", day)
+        self.assertNotIn(art["title_hash"], db.get_recurring_title_hashes(self.conn, 3))
+
+    def test_same_day_repeats_do_not_accumulate(self):
+        # Three URLs, one day: a syndication burst, not a recurring strand.
+        for n in range(3):
+            art = self._seen("Breaking", f"https://x.com/{n}", "2026-08-01")
+        self.assertNotIn(art["title_hash"], db.get_recurring_title_hashes(self.conn, 3))
+
+    def test_pruned_rows_are_excluded(self):
+        # prune() blanks title but keeps the hash; those rows must not count.
+        for n, day in enumerate(["2026-08-01", "2026-08-08", "2026-08-15"]):
+            art = self._seen("Tech Life", f"https://bbc.co.uk/sounds/{n}", day)
+        self.conn.execute("UPDATE articles SET title = ''")
+        self.conn.commit()
+        self.assertEqual(db.get_recurring_title_hashes(self.conn, 3), set())
 
 
 class SynthesisPersistenceTests(unittest.TestCase):

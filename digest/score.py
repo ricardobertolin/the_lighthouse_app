@@ -22,10 +22,10 @@ def _get_model() -> SentenceTransformer:
     return _MODEL
 
 
-def _is_blocked(domain: str, rep: DomainReputation) -> bool:
-    return any(
-        domain == d or domain.endswith("." + d) for d in rep.blocked
-    )
+def _is_blocked(domain: str, url: str, rep: DomainReputation) -> bool:
+    if any(domain == d or domain.endswith("." + d) for d in rep.blocked):
+        return True
+    return any(p in url for p in rep.blocked_url_patterns)
 
 
 def _reputation_score(domain: str, rep: DomainReputation) -> float:
@@ -143,14 +143,18 @@ def score_articles(
     articles: list[dict],
     cfg: Config,
     clicked_texts: list[str] | None = None,
+    recurring_titles: set[str] | None = None,
 ) -> list[dict]:
     if not articles:
         return []
 
+    before = len(articles)
     articles = [
         a for a in articles
-        if not _is_blocked(a["source_domain"], cfg.domain_reputation)
+        if not _is_blocked(a["source_domain"], a.get("url", ""), cfg.domain_reputation)
     ]
+    if before != len(articles):
+        logger.info("Blocked %d article(s) by domain or URL pattern.", before - len(articles))
     if not articles:
         logger.warning("All articles were blocked; nothing to score.")
         return []
@@ -173,6 +177,26 @@ def score_articles(
         ).ravel()
         w = cfg.click_weight
         relevance_raw = (1.0 - w) * relevance_raw + w * click_sim
+
+    # Recurring strands ("Tech Life", "Here's the latest.") carry a generic
+    # title that sits closer to an abstract interest topic than any specific
+    # story does, and they arrive under a fresh URL each week so url_hash dedup
+    # never sees them. Relevance is z-scored, so zeroing it puts them at the
+    # batch mean: still eligible on reputation and corroboration, no longer
+    # able to win on topic match alone.
+    if recurring_titles:
+        strand = np.array(
+            [a.get("title_hash", "") in recurring_titles for a in articles]
+        )
+        if strand.any():
+            logger.info(
+                "Damped relevance for %d recurring-title article(s): %s",
+                int(strand.sum()),
+                ", ".join(
+                    sorted({articles[i]["title"][:40] for i in np.flatnonzero(strand)})
+                )[:200],
+            )
+            relevance_raw = np.where(strand, 0.0, relevance_raw)
 
     # Corroboration — recomputed here rather than trusting fetch's title match.
     corr_counts = _corroboration_counts(

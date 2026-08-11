@@ -156,7 +156,8 @@ def main() -> None:
     from .config import load_config, CONFIG_PATH
     from .db import (
         get_conn, upsert_article, get_today_articles, get_articles_by_hash,
-        update_images, save_synthesis, get_synthesis, get_clicked_texts, prune,
+        update_images, save_synthesis, get_synthesis, get_clicked_texts,
+        get_recurring_title_hashes, prune,
     )
     from .fetch import fetch_all, print_stage1_report, enrich_missing_images
     from .score import score_articles, print_stage2_report
@@ -283,7 +284,12 @@ def main() -> None:
             "No clicks recorded yet — using configured topics only. "
             "Export clicks from the page and run --ingest-clicks to personalize."
         )
-    scored = score_articles(articles, cfg, clicked_texts)  # ALL scored, sorted
+    recurring = (
+        get_recurring_title_hashes(conn, cfg.recurring_title_days)
+        if cfg.recurring_title_days
+        else set()
+    )
+    scored = score_articles(articles, cfg, clicked_texts, recurring)  # ALL scored, sorted
     print_stage2_report(scored, show=cfg.top_n)
 
     # Persist ALL scored articles to DB so none reappear in future runs,

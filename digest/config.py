@@ -26,6 +26,10 @@ class DomainReputation:
     trusted_score: float = 0.85
     neutral_score: float = 0.40
     blocked: list[str] = field(default_factory=list)
+    # Substring match against the full URL. Some feeds mix non-article content
+    # in with the news — bbc.co.uk/sounds/ ships podcast episodes through the
+    # technology RSS — and that is a path-level distinction, not a domain one.
+    blocked_url_patterns: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -54,6 +58,9 @@ class Config:
     click_weight: float = 0.30
     # Cosine above which two articles count as the same story.
     corroboration_similarity: float = 0.72
+    # A title seen on this many distinct days is a recurring strand, not news;
+    # its relevance is shrunk to the batch mean. 0 disables the check.
+    recurring_title_days: int = 3
     retention: RetentionConfig = field(default_factory=RetentionConfig)
 
 
@@ -66,6 +73,7 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
         trusted_score=rep_raw.get("trusted_score", 0.85),
         neutral_score=rep_raw.get("neutral_score", 0.40),
         blocked=rep_raw.get("blocked", []),
+        blocked_url_patterns=rep_raw.get("blocked_url_patterns", []),
     )
 
     gnews_raw = raw.get("gnews", {})
@@ -100,5 +108,6 @@ def load_config(path: Path = CONFIG_PATH) -> Config:
         interest_topics=raw.get("interest_topics", []),
         click_weight=raw.get("click_weight", 0.30),
         corroboration_similarity=raw.get("corroboration_similarity", 0.72),
+        recurring_title_days=raw.get("recurring_title_days", 3),
         retention=retention,
     )

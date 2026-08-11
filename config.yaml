@@ -107,6 +107,15 @@ domain_reputation:
   trusted_score: 0.85
   neutral_score: 0.40
   blocked: []
+  # Substring-matched against the full URL. BBC ships "Tech Life" / "Tech Now"
+  # podcast episodes through the technology RSS feed as bbc.co.uk/sounds/play/…
+  blocked_url_patterns:
+    - bbc.co.uk/sounds/
+
+# A title that shows up on this many distinct days is a recurring strand
+# (podcast episode, live-blog stub, weekly column), not a news story — its
+# relevance is pulled back to the batch mean. 0 disables the check.
+recurring_title_days: 3
 
 weights:
   relevance: 0.50

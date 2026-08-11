@@ -10,17 +10,27 @@ static page to GitHub Pages.
 
 ## Running it
 
-The digest builds itself daily in GitHub Actions
-(`.github/workflows/daily-digest.yml`, 13:00 UTC / 10:00 in Curitiba). It needs
-two repository secrets:
+The daily run belongs to the local Windows scheduled task
+(`lighthouse-daily.ps1` + `setup-scheduler.ps1`, 10:00). It has the API keys in
+its environment and the full `digest.db`, so it produces the best digest.
+
+`.github/workflows/daily-digest.yml` runs the same pipeline on a runner, but is
+**manual dispatch only**. Both were briefly scheduled at once, and on
+2026-08-11 the Actions run finished second with no secrets configured and
+published a fallback digest over a good one — hence the preflight check that
+now aborts a committing run when `ANTHROPIC_API_KEY` is missing.
+
+To hand the daily run over to Actions, set two repository secrets:
 
 | Secret | Used for |
 | --- | --- |
 | `ANTHROPIC_API_KEY` | headline/summary synthesis |
 | `GNEWS_API_KEY` | discovery queries beyond the RSS feeds |
 
-`lighthouse-daily.ps1` + `setup-scheduler.ps1` still run the same pipeline from
-a local Windows box if you'd rather not use Actions.
+then disable the Windows task (`Disable-ScheduledTask -TaskName "The
+Lighthouse"`) *before* restoring the `schedule:` trigger. Note that a runner
+starts from whatever `digest.db` survives in the cache; with an empty cache,
+dedup memory is gone and weeks of already-seen articles resurface at once.
 
 ### Commands
 
@@ -72,6 +82,19 @@ Two details that matter:
 - **Corroboration clusters embeddings, not titles.** Exact title matching
   found a second source for 0.7% of articles; two outlets essentially never
   write byte-identical headlines.
+
+Two filters sit in front of all this:
+
+- **`blocked_url_patterns`** drops non-articles by URL path. BBC ships "Tech
+  Life" and "Tech Now" podcast episodes through its technology RSS feed as
+  `bbc.co.uk/sounds/play/…`, on a trusted domain.
+- **`recurring_title_days`** damps titles seen on 3+ distinct days. A strand
+  gets a fresh URL every week, so url_hash dedup never fires, and its generic
+  wording sits *closer* to an abstract interest topic than a specific story
+  does — "Tech Life" once scored 6.07 standard deviations above the batch mean.
+  Relevance is z-scored, so these are pulled back to the mean rather than
+  dropped: still eligible on reputation and corroboration. Across 18,893 rows
+  exactly four titles cross the threshold, and all four are filler.
 
 ## Storage
 

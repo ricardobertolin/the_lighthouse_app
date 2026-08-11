@@ -309,6 +309,36 @@ def get_clicked_texts(conn: sqlite3.Connection, limit: int = 300) -> list[str]:
     return texts
 
 
+def get_recurring_title_hashes(
+    conn: sqlite3.Connection, min_days: int = 3
+) -> set[str]:
+    """
+    Titles that have appeared on `min_days` or more distinct days.
+
+    A headline that repeats verbatim across weeks is a strand, not a story:
+    a podcast episode ("Tech Life"), a live-blog stub ("Here's the latest."),
+    a recurring column. Each gets a fresh URL every time, so url_hash dedup
+    never catches them, and their generic wording sits closer to an abstract
+    interest topic than any specific news article does — on 2026-08-11 "Tech
+    Life" scored 6.07 standard deviations above the batch mean and took the
+    top slot.
+
+    Across 18,893 rows only four titles reach three days, and all four are
+    this kind of filler, so the threshold discriminates cleanly.
+    """
+    rows = conn.execute(
+        """
+        SELECT title_hash
+        FROM articles
+        WHERE title != ''
+        GROUP BY title_hash
+        HAVING COUNT(DISTINCT seen_date) >= ?
+        """,
+        (min_days,),
+    ).fetchall()
+    return {row["title_hash"] for row in rows}
+
+
 def get_click_domain_counts(conn: sqlite3.Connection) -> dict[str, int]:
     rows = conn.execute(
         "SELECT source_domain, COUNT(*) n FROM clicks "

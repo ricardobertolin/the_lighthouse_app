@@ -1,10 +1,11 @@
 name: Daily digest
 
+# Manual dispatch only. The Windows scheduled task owns the daily run for now:
+# it has the API keys and the full dedup database, while a runner starts from
+# whatever survives in the cache. On 2026-08-11 both fired, the (keyless) Actions
+# run finished second, and it published a fallback digest over a good one.
+# Re-enable the cron once the secrets are set and the DB seed is in place.
 on:
-  schedule:
-    # 13:00 UTC = 10:00 in America/Sao_Paulo. Brazil has had no DST since 2019,
-    # so this is a stable local time year-round.
-    - cron: "0 13 * * *"
   workflow_dispatch:
     inputs:
       skip_commit:
@@ -27,6 +28,20 @@ jobs:
     timeout-minutes: 30
 
     steps:
+      # Without a key the pipeline degrades to fallback synthesis — untranslated
+      # titles, every category "Other", every region "world" — and then commits
+      # it. Fail before spending three minutes producing a page worse than the
+      # one already published. Use skip_commit to build without a key on purpose.
+      - name: Check secrets
+        if: ${{ !inputs.skip_commit }}
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::error::ANTHROPIC_API_KEY is not set. A run without it would publish fallback synthesis over the live page. Set it with 'gh secret set ANTHROPIC_API_KEY', or dispatch with skip_commit=true to build without committing."
+            exit 1
+          fi
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
