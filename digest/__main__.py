@@ -236,7 +236,7 @@ def main() -> None:
         if args.all_weathers:
             for condition, fake_wx in _FAKE_WEATHER.items():
                 out_path = OUTPUT_PATH.parent / f"digest_{condition}.html"
-                render(top, synthesis, fake_wx, output_path=out_path)
+                render(top, synthesis, fake_wx, output_path=out_path, live_weather=False)
                 log.info("Rendered %-12s → %s", condition, out_path.name)
                 if not args.no_browser:
                     open_browser(out_path, cfg.browser)
@@ -254,7 +254,11 @@ def main() -> None:
             out_path = OUTPUT_PATH
 
         log.info("Rendering…")
-        output = render(top, synthesis, weather, output_path=out_path)
+        output = render(
+            top, synthesis, weather,
+            output_path=out_path,
+            live_weather=not args.weather,
+        )
         log.info("Digest written → %s", output)
         if not args.no_browser:
             open_browser(output, cfg.browser)

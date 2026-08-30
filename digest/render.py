@@ -689,10 +689,16 @@ function wxSceneType(code, precip) {
 }
 
 // ── Weather ──────────────────────────────────────────────────────────
+// The scene and the headline label come from the *current* observation when we
+// have one. The daily weathercode is the most severe condition anywhere in the
+// 24h window, so using it alone made a calm drizzly morning render as a
+// thunderstorm. The hi/lo/wind stats stay on the daily outlook.
 function renderWeather() {
   const w = DATA.weather || {};
-  const code   = w.wmo_code != null ? w.wmo_code : 3;
-  const precip = w.precipitation_mm || 0;
+  const code   = w.current_code != null ? w.current_code
+               : (w.wmo_code != null ? w.wmo_code : 3);
+  const precip = w.current_code != null ? (w.precip_now_mm || 0)
+                                        : (w.precipitation_mm || 0);
   const type   = wxSceneType(code, precip);
 
   const canvas = document.getElementById('j-fx-canvas');
@@ -707,6 +713,41 @@ function renderWeather() {
     '<span><b>' + t('high') + '</b> ' + esc(hi)   + '</span>' +
     '<span><b>' + t('low')  + '</b> ' + esc(lo)   + '</span>' +
     '<span><b>' + t('wind') + '</b> ' + esc(wind) + '</span>';
+}
+
+// The page is a static file generated once a day, so the baked forecast goes
+// stale within hours. Open-Meteo is keyless and CORS-enabled, so refresh the
+// card straight from the browser. On any failure we silently keep the baked
+// values.
+const WX_URL = '__WX_URL__';
+
+function refreshWeather() {
+  // --weather previews bake a fixed condition on purpose; don't clobber it.
+  if (DATA.live_weather === false) return;
+  fetch(WX_URL, { cache: 'no-store' })
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(d => {
+      const daily = d.daily || {};
+      const cur   = d.current || {};
+      const first = (k) => (daily[k] && daily[k].length ? daily[k][0] : null);
+      DATA.weather = Object.assign({}, DATA.weather, {
+        temp_max:         first('temperature_2m_max'),
+        temp_min:         first('temperature_2m_min'),
+        precipitation_mm: first('precipitation_sum'),
+        precip_prob:      first('precipitation_probability_max'),
+        wind_max_kmh:     first('windspeed_10m_max'),
+        wmo_code:         first('weathercode'),
+        temp_now:         cur.temperature_2m,
+        feels_like:       cur.apparent_temperature,
+        humidity:         cur.relative_humidity_2m,
+        precip_now_mm:    cur.precipitation,
+        wind_now_kmh:     cur.windspeed_10m,
+        current_code:     cur.weathercode,
+        observed_at:      cur.time,
+      });
+      renderWeather();
+    })
+    .catch(() => {});
 }
 
 // ── Nav ──────────────────────────────────────────────────────────────
@@ -1089,6 +1130,12 @@ function init() {
 
   renderMasthead();
   renderWeather();
+  refreshWeather();
+  // Static page, long-lived tab: keep the card honest.
+  setInterval(refreshWeather, 15 * 60 * 1000);
+  document.addEventListener('visibilitychange', function() {
+    if (!document.hidden) refreshWeather();
+  });
   renderNav();
   renderBriefing();
   renderArticles();
@@ -1127,11 +1174,22 @@ if ('serviceWorker' in navigator) {
 """
 
 
+def _weather_url() -> str:
+    """The exact Open-Meteo query the page re-runs client-side, so the browser
+    and the generator always ask for the same fields."""
+    from urllib.parse import urlencode
+
+    from .weather import PARAMS
+
+    return "https://api.open-meteo.com/v1/forecast?" + urlencode(PARAMS)
+
+
 def render(
     articles: list[dict],
     synthesis: dict,
     weather: dict,
     output_path: Path = OUTPUT_PATH,
+    live_weather: bool = True,
 ) -> Path:
     today = date.today().isoformat()
 
@@ -1158,6 +1216,7 @@ def render(
         "intro_en": synthesis.get("intro_en", synthesis.get("intro", "")),
         "intro_pt": synthesis.get("intro_pt", ""),
         "weather": weather,
+        "live_weather": live_weather,
         "articles": enriched,
         "generated_at": datetime.now().isoformat(),
     }
@@ -1166,6 +1225,7 @@ def render(
     data_json = data_json.replace("</", "<\\/")
 
     html = _HTML.replace("__DATA_JSON__", data_json)
+    html = html.replace("__WX_URL__", _weather_url())
     output_path.write_text(html, encoding="utf-8")
     return output_path
 
